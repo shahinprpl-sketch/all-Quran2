@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Layout from './components/Layout';
 import { useApp, AppProvider } from './context/AppContext';
-import { fetchSurahList, fetchSurahDetail, fetchPrayerTimings, getRamadanCountdown, fetchRandomHadith, fetchRamadanCalendar, getRamadanHistory } from './services/quranService';
+import { fetchSurahList, fetchSurahDetail, fetchPrayerTimings, getRamadanCountdown, fetchRandomHadith, fetchRamadanCalendar, getRamadanHistory, saveSurahToCache, isSurahCached, removeSurahFromCache } from './services/quranService';
 import { fetchHadiths, HADITH_BOOKS, HadithBook, HadithData } from './services/hadithService';
 import { SurahMetadata, SurahDetail, ThemeMode, PrayerTimings, HijriDate, Hadith, Ayah } from './types';
 import { UI_TRANSLATIONS, APP_LANGUAGES, PRAYER_RAKATS, PRAYER_DUAS } from './constants';
@@ -11,10 +11,11 @@ import {
   ChevronRight, Search, Bookmark as BookmarkIcon, 
   Settings as SettingsIcon, Play, BookOpen, 
   ArrowLeft, Plus, Minus, Moon, Sun, BookmarkCheck,
-  Globe, LayoutGrid, Sliders, X, Clock, MapPin, Calendar, Headphones, Quote, RefreshCw, Info, ChevronDown, ChevronUp, User, Download, HardDrive, Trash2, CheckCircle2, Heart, Code, Mail, Copy, Activity
+  Globe, LayoutGrid, Sliders, X, Clock, MapPin, Calendar, Headphones, Quote, RefreshCw, Info, ChevronDown, ChevronUp, User, Download, HardDrive, Trash2, CheckCircle2, Heart, Code, Mail, Copy, Activity, Brain
 } from 'lucide-react';
 import AudioPlayer from './components/AudioPlayer';
 import TasbihView from './components/TasbihView';
+import IslamicGames from './components/IslamicGames';
 
 const LiveClock: React.FC = () => {
   const [time, setTime] = useState(new Date());
@@ -67,26 +68,65 @@ const OfflineManager: React.FC = () => {
     audioFiles: false
   });
 
-  const simulateDownload = (type: string) => {
-    if (isDownloading[type] || isCompleted[type]) return;
+  useEffect(() => {
+    let cachedCount = 0;
+    for (let i = 1; i <= 114; i++) {
+      if (isSurahCached(i, language)) cachedCount++;
+    }
+    if (cachedCount === 114) {
+      setIsCompleted(prev => ({ ...prev, quranText: true }));
+      setDownloadProgress(prev => ({ ...prev, quranText: 100 }));
+    }
+  }, [language]);
+
+  const downloadAllSurahs = async () => {
+    if (isDownloading.quranText || isCompleted.quranText) return;
     
-    setIsDownloading(prev => ({ ...prev, [type]: true }));
+    setIsDownloading(prev => ({ ...prev, quranText: true }));
+    
+    try {
+      for (let i = 1; i <= 114; i++) {
+        const data = await fetchSurahDetail(i, language);
+        saveSurahToCache(i, language, data);
+        const progress = (i / 114) * 100;
+        setDownloadProgress(prev => ({ ...prev, quranText: progress }));
+      }
+      setIsCompleted(prev => ({ ...prev, quranText: true }));
+    } catch (e) {
+      console.error("Download failed", e);
+    } finally {
+      setIsDownloading(prev => ({ ...prev, quranText: false }));
+    }
+  };
+
+  const deleteAllSurahs = () => {
+    for (let i = 1; i <= 114; i++) {
+      removeSurahFromCache(i, language);
+    }
+    setIsCompleted(prev => ({ ...prev, quranText: false }));
+    setDownloadProgress(prev => ({ ...prev, quranText: 0 }));
+  };
+
+  const simulateDownloadAudio = () => {
+    if (isDownloading.audioFiles || isCompleted.audioFiles) return;
+    
+    setIsDownloading(prev => ({ ...prev, audioFiles: true }));
     let progress = 0;
     const interval = setInterval(() => {
-      progress += Math.random() * 15;
+      progress += Math.random() * 5;
       if (progress >= 100) {
         progress = 100;
         clearInterval(interval);
-        setIsDownloading(prev => ({ ...prev, [type]: false }));
-        setIsCompleted(prev => ({ ...prev, [type]: true }));
+        setIsDownloading(prev => ({ ...prev, audioFiles: false }));
+        setIsCompleted(prev => ({ ...prev, audioFiles: true }));
       }
-      setDownloadProgress(prev => ({ ...prev, [type]: progress }));
+      setDownloadProgress(prev => ({ ...prev, audioFiles: progress }));
     }, 400);
   };
 
-  const deleteData = (type: string) => {
-    setIsCompleted(prev => ({ ...prev, [type]: false }));
-    setDownloadProgress(prev => ({ ...prev, [type]: 0 }));
+  const deleteAudioData = () => {
+    setIsCompleted(prev => ({ ...prev, audioFiles: false }));
+    setDownloadProgress(prev => ({ ...prev, audioFiles: 0 }));
   };
 
   return (
@@ -112,13 +152,13 @@ const OfflineManager: React.FC = () => {
             {isCompleted.quranText ? (
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={16} className="text-emerald-500" />
-                <button onClick={() => deleteData('quranText')} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                <button onClick={deleteAllSurahs} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
                   <Trash2 size={16} />
                 </button>
               </div>
             ) : (
               <button 
-                onClick={() => simulateDownload('quranText')}
+                onClick={downloadAllSurahs}
                 disabled={isDownloading.quranText}
                 className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
               >
@@ -143,13 +183,13 @@ const OfflineManager: React.FC = () => {
             {isCompleted.audioFiles ? (
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={16} className="text-emerald-500" />
-                <button onClick={() => deleteData('audioFiles')} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                <button onClick={deleteAudioData} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
                   <Trash2 size={16} />
                 </button>
               </div>
             ) : (
               <button 
-                onClick={() => simulateDownload('audioFiles')}
+                onClick={simulateDownloadAudio}
                 disabled={isDownloading.audioFiles}
                 className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
               >
@@ -189,6 +229,8 @@ const AppContent: React.FC = () => {
   const [expandedPrayer, setExpandedPrayer] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [previewSurah, setPreviewSurah] = useState<SurahMetadata | null>(null);
+  const [forceUpdate, setForceUpdate] = useState(0);
+  const [downloadingSurah, setDownloadingSurah] = useState<number | null>(null);
   
   // Hadith browsing states
   const [selectedHadithBook, setSelectedHadithBook] = useState<HadithBook | null>(null);
@@ -398,6 +440,7 @@ const AppContent: React.FC = () => {
           { id: 'audio', icon: Headphones, label: t.audioQuran, color: 'emerald' },
           { id: 'hadis', icon: Quote, label: t.hadis, color: 'orange' },
           { id: 'tasbih', icon: Activity, label: t.tasbih, color: 'purple' },
+          { id: 'games', icon: Brain, label: t.games, color: 'indigo' },
           { id: 'developer', icon: Code, label: t.developerInfo, color: 'blue' },
           { id: 'donation', icon: Heart, label: t.donation, color: 'pink' }
         ].map((item) => (
@@ -465,6 +508,26 @@ const AppContent: React.FC = () => {
 
   const renderPreviewModal = () => {
     if (!previewSurah) return null;
+    
+    const isCached = isSurahCached(previewSurah.number, language);
+    const isDownloading = downloadingSurah === previewSurah.number;
+
+    const handleDownload = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isCached || isDownloading) return;
+      
+      setDownloadingSurah(previewSurah.number);
+      try {
+        const data = await fetchSurahDetail(previewSurah.number, language);
+        saveSurahToCache(previewSurah.number, language, data);
+        setForceUpdate(prev => prev + 1);
+      } catch (e) {
+        console.error("Download failed", e);
+      } finally {
+        setDownloadingSurah(null);
+      }
+    };
+
     return (
       <AnimatePresence>
         <motion.div 
@@ -502,6 +565,26 @@ const AppContent: React.FC = () => {
               <p className="text-slate-500 dark:text-slate-400 text-sm font-medium leading-relaxed">
                 "{previewSurah.englishNameTranslation}"
               </p>
+
+              <button 
+                onClick={handleDownload}
+                disabled={isCached || isDownloading}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  isCached 
+                    ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 cursor-default' 
+                    : isDownloading
+                      ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-wait'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-slate-700'
+                }`}
+              >
+                {isCached ? (
+                  <><CheckCircle2 size={14} /> Downloaded</>
+                ) : isDownloading ? (
+                  <><RefreshCw size={14} className="animate-spin" /> Downloading...</>
+                ) : (
+                  <><Download size={14} /> Download for Offline</>
+                )}
+              </button>
 
               <div className="grid grid-cols-2 gap-3 w-full pt-2">
                 <button 
@@ -1226,7 +1309,7 @@ const AppContent: React.FC = () => {
   );
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={(tab) => { setActiveTab(tab); setSelectedSurah(null); }} hideNav={!!selectedSurah || activeTab === 'developer' || activeTab === 'donation' || activeTab === 'tasbih'}>
+    <Layout activeTab={activeTab} setActiveTab={(tab) => { setActiveTab(tab); setSelectedSurah(null); }} hideNav={!!selectedSurah || activeTab === 'developer' || activeTab === 'donation' || activeTab === 'tasbih' || activeTab === 'games'}>
       {isLoading && <div className="fixed inset-0 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center"><div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>}
       <AnimatePresence mode="wait">
         {selectedSurah ? renderSurahDetail() : (
@@ -1237,6 +1320,7 @@ const AppContent: React.FC = () => {
             {activeTab === 'audio' && renderAudioQuran()}
             {activeTab === 'hadis' && renderHadis()}
             {activeTab === 'tasbih' && <TasbihView setActiveTab={setActiveTab} />}
+            {activeTab === 'games' && <IslamicGames setActiveTab={setActiveTab} />}
             {activeTab === 'settings' && renderSettings()}
             {activeTab === 'developer' && renderDeveloperPage()}
             {activeTab === 'donation' && renderDonationPage()}

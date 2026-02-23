@@ -20,14 +20,48 @@ const TAFSIR_MAP: Record<AppLanguage, string> = {
   ar: 'ar.jalalayn'
 };
 
+const CACHE_PREFIX = 'quran_surah_';
+
+export const isSurahCached = (surahNumber: number, lang: AppLanguage): boolean => {
+  try {
+    return !!localStorage.getItem(`${CACHE_PREFIX}${surahNumber}_${lang}`);
+  } catch {
+    return false;
+  }
+};
+
+export const saveSurahToCache = (surahNumber: number, lang: AppLanguage, data: SurahDetail) => {
+  try {
+    localStorage.setItem(`${CACHE_PREFIX}${surahNumber}_${lang}`, JSON.stringify(data));
+    return true;
+  } catch (e) {
+    console.error('Storage quota exceeded', e);
+    return false;
+  }
+};
+
+export const removeSurahFromCache = (surahNumber: number, lang: AppLanguage) => {
+  try {
+    localStorage.removeItem(`${CACHE_PREFIX}${surahNumber}_${lang}`);
+  } catch (e) {
+    console.error('Error removing surah', e);
+  }
+};
+
 export const fetchSurahList = async (): Promise<SurahMetadata[]> => {
   try {
+    const cached = localStorage.getItem('quran_surah_list');
+    if (cached) return JSON.parse(cached);
+
     const response = await fetch(`${QURAN_BASE_URL}/surah`);
     const data = await response.json();
+    
+    localStorage.setItem('quran_surah_list', JSON.stringify(data.data));
     return data.data;
   } catch (error) {
     console.error("Failed to fetch surah list", error);
-    return [];
+    const cached = localStorage.getItem('quran_surah_list');
+    return cached ? JSON.parse(cached) : [];
   }
 };
 
@@ -36,6 +70,12 @@ export const fetchSurahDetail = async (
   lang: AppLanguage
 ): Promise<SurahDetail> => {
   try {
+    // Check cache first
+    const cached = localStorage.getItem(`${CACHE_PREFIX}${surahNumber}_${lang}`);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
     const [arabicRes, transRes, audioRes, tafsirRes] = await Promise.all([
       fetch(`${QURAN_BASE_URL}/surah/${surahNumber}/quran-uthmani`),
       fetch(`${QURAN_BASE_URL}/surah/${surahNumber}/${TRANSLATION_MAP[lang]}`),
@@ -62,12 +102,17 @@ export const fetchSurahDetail = async (
         : (transData.data.ayahs[index]?.text || "")
     }));
 
-    return {
+    const result = {
       ...arabicData.data,
       ayahs
     };
+
+    return result;
   } catch (error) {
     console.error("Error fetching surah detail:", error);
+    // Try cache as fallback if not checked above (though we checked above)
+    const cached = localStorage.getItem(`${CACHE_PREFIX}${surahNumber}_${lang}`);
+    if (cached) return JSON.parse(cached);
     throw error;
   }
 };
